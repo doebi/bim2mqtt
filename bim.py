@@ -1,12 +1,16 @@
 import requests
-import datetime
+import schedule
+import time
+from datetime import datetime
 from urllib.parse import urlencode
 from lxml import etree
+from collections import deque
 
-url = "http://www.linzag.at/static/XML_DM_REQUEST"
-lines = ["4:0", "4:1", "4:2", "4:3", "5:0", "5:1"]
+url = "https://www.linzag.at/static/XML_DM_REQUEST"
 stopID = "60500150" # Untergaumberg
-stopID = "60501720" # Hauptbahnhof
+
+departures = deque()
+
 
 def getSession(stopID):
     data = {
@@ -21,32 +25,59 @@ def getSession(stopID):
 
 
 def getDeparture(stopID):
+    print("getDeparture")
+
+    result = deque()
     sid = getSession(stopID)
     data = {
         "sessionID": sid,
-        "requestID": 1,
-        "dmLineSelectionAll": 1,
-        "command": "dmNext"
+        "request": "1",
+        "dmLineSelectionAll": "1",
     }
-
 
     #"itdDateTimeDepArr": "dep",
     #"dmLineSelection": "all",
-    #"dmLineSelection": "4:0"
     #datastring = urlencode(data)
 
     #for l in lines:
     #    datastring += "&dmLineSelection=" + l
 
     r = requests.get(url, data)
-    print(r.text)
     data = etree.fromstring(r.content)
+    now = datetime.strptime(data.get('now'), "%Y-%m-%dT%H:%M:%S")
     dm_request = data[-1]
     departure_list = dm_request[-1]
 
-    #print(departure_list)
-    #now = datetime.strptime(data.get('now'), "%Y-%m-%dT%H:%M:%S")
-    #print(now)
+    for d in departure_list:
+        datetimeobj = d[0]
+        dateobj = datetimeobj[0]
+        timeobj = datetimeobj[1]
+
+        deptimestring = "%s-%s-%sT%s:%s:%s" %(dateobj.get('year'), dateobj.get('month'), dateobj.get('day'), timeobj.get('hour'), timeobj.get('minute'), '0')
+
+        dep = datetime.strptime(deptimestring, "%Y-%m-%dT%H:%M:%S")
+        result.append(dep)
+    return result
 
 
-getDeparture(stopID)
+def update():
+    global departures
+    print("update")
+    now = datetime.now().replace(microsecond=0)
+
+    if (len(departures) == 0):
+        departures = getDeparture(stopID)
+
+    next_departure = departures[0]
+
+    if (next_departure < now):
+        departures.popleft()
+
+    delta = next_departure - now
+    print(delta)
+
+schedule.every(1).seconds.do(update)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
